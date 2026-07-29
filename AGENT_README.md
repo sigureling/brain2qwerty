@@ -21,7 +21,7 @@ non-invasive MEG. Each generation is a **self-contained Python package**:
 
 - **`brain2qwerty_v1/`** — keystroke-level decoder (Conv encoder + sentence-level
   Transformer), trained with per-keystroke cross-entropy. Dataset: **SpanishBCBL**
-  (`Pinet2024Meg`). Reported MEG CER ≈ 0.38 (Conv+Transformer, no language model);
+  (`Pinet2024Meg`). Reported MEG CER ≈ 0.36 (Conv+Transformer, no language model);
   the optional N-gram rescoring lowers it further.
 - **`brain2qwerty_v2/`** — sentence-level end-to-end decoder. A Conv+Conformer CTC
   encoder, a word-level contrastive aligner (SigLIP + DTW), and a LoRA-adapted LLM,
