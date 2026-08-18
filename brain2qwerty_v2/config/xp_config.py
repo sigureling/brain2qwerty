@@ -53,6 +53,10 @@ def experiment_config() -> dict:
             "extractor": {
                 "name": "SentenceKeySeq",
                 "mode": "typed_label",
+                # A segment is triggered by its Sentence event.  Selecting the
+                # trigger avoids collisions when the random tail overlaps the
+                # preceding Sentence event.
+                "aggregation": "trigger",
                 "infra": {"folder": CACHE},
             },
             "batch_size": 64,
