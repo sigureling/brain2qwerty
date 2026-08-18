@@ -9,7 +9,7 @@ from pathlib import Path
 
 import lightning.pytorch as pl
 
-from .utils import compute_ctc_sample_metrics
+from .utils import compute_ctc_sample_metrics, compute_subject_cer_summary
 
 
 class PredictionJSONCallback(pl.Callback):
@@ -56,8 +56,12 @@ class PredictionJSONCallback(pl.Callback):
             ]
         self.save_dir.mkdir(parents=True, exist_ok=True)
         path = self.save_dir / filename
+        output = {
+            "rows": rows_with_metrics,
+            **compute_subject_cer_summary(rows_with_metrics),
+        }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(rows_with_metrics, f, ensure_ascii=False, indent=2)
+            json.dump(output, f, ensure_ascii=False, indent=2)
             f.write("\n")
         print(f"Saved {len(rows_with_metrics)} predictions to {path}")
 

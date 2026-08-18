@@ -79,7 +79,8 @@ def main(argv: list[str] | None = None) -> None:
 
     print(f"Reading {args.split} predictions from {json_path}")
     with open(json_path, encoding="utf-8") as f:
-        df = summarize(pd.DataFrame(json.load(f)))
+        data = json.load(f)
+    df = summarize(pd.DataFrame(data["rows"]))
     n_subj = df["subject"].nunique() if "subject" in df.columns else 1
     print(
         f"Scoring {len(df)} sentences across {n_subj} subjects "

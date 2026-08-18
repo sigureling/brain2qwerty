@@ -66,6 +66,26 @@ def apply_jitter(
     return data[:, int(jitter_amount) :]
 
 
+def compute_subject_cer_summary(rows: list[dict]) -> dict:
+    """Mean sentence CER per subject, plus the overall mean across subjects.
+
+    Aggregates the per-sentence ``CTC_CER`` already stored in ``rows``, so each
+    subject value is exactly the average of that subject's sentence CERs and the
+    across-subject value is the unweighted mean over subjects.
+    """
+    by_subject: dict[str, list[float]] = {}
+    for r in rows:
+        cer = r.get("CTC_CER")
+        if cer is None or cer != cer:  # skip missing / NaN
+            continue
+        by_subject.setdefault(r.get("subject", ""), []).append(float(cer))
+    subject_cer = {s: sum(vs) / len(vs) for s, vs in sorted(by_subject.items())}
+    across_subject_cer = (
+        sum(subject_cer.values()) / len(subject_cer) if subject_cer else float("nan")
+    )
+    return {"subject_cer": subject_cer, "across_subject_cer": across_subject_cer}
+
+
 def compute_ctc_sample_metrics(
     typed_texts: list[str], ctc_texts: list[str]
 ) -> list[dict]:
