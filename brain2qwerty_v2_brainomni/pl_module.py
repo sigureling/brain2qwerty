@@ -14,7 +14,12 @@ from torch import optim
 from .augmentations import Preprocess, PreprocessConfig
 from .losses import CtcLoss
 from .metrics import CharacterErrorRate
-from .utils import compute_output_lens, ctc_greedy_decode, label_to_text
+from .utils import (
+    build_brainomni_temporal_mask,
+    compute_output_lens,
+    ctc_greedy_decode,
+    label_to_text,
+)
 
 log = logging.getLogger(__name__)
 
@@ -65,11 +70,15 @@ class NeuroCTCModule(pl.LightningModule):
             data = self.preprocess(data)
 
         batch_size = data["neuros"].shape[0]
+        temporal_mask = build_brainomni_temporal_mask(
+            self.network, data["neuros"], data["neuro_sizes"]
+        )
         model_out = self.network(
             data["neuros"],
             data["days"],
             data["pos"],
             data["sensor_type"],
+            temporal_mask=temporal_mask,
         )
         ctc_logits = model_out["c_out"]
 

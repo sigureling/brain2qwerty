@@ -165,16 +165,49 @@ class BrainEncoder(nn.Module):
 
         return rearrange(x, "(B W) Q D -> B Q W D", B=B)
 
-    def temporal_forward(self, x: torch.Tensor):
+    def temporal_forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
+    ):
         B = x.shape[0]
+        _, _, W, _ = x.shape
         if self.use_cls:
             cls_token = self.cls_token.type_as(x).expand(B, -1, -1, -1)
             x = torch.cat([cls_token, x], dim=2)
 
+        temporal_mask = None
+        if mask is not None:
+            if mask.shape != (B, W):
+                raise ValueError(
+                    "temporal mask must have shape (B, W), got "
+                    f"{tuple(mask.shape)} for {(B, W)}"
+                )
+            mask = mask.to(device=x.device, dtype=torch.bool)
+            if self.use_cls:
+                mask = torch.cat(
+                    [
+                        torch.ones((B, 1), dtype=torch.bool, device=x.device),
+                        mask,
+                    ],
+                    dim=1,
+                )
+            # Mask keys only. Invalid query outputs are zeroed below, while
+            # valid queries cannot attend to padded keys. The broadcastable
+            # shape avoids allocating a dense T x T mask.
+            T = mask.shape[1]
+            temporal_mask = (
+                mask[:, None, None, :]
+                .expand(B, self.num_queries, 1, T)
+                .reshape(B * self.num_queries, 1, 1, T)
+            )
+
         x = rearrange(x, "B Q W D -> (B Q) W D")
         for block in self.attn_blocks:
-            x = block(x)
+            x = block(x, mask=temporal_mask)
         x = rearrange(x, "(B Q) W D -> B Q W D", B=B)
+        if mask is not None:
+            # Invalid query outputs are not useful CTC frames and must not
+            # carry padding activations into a later head or residual path.
+            x = x.masked_fill(~mask[:, None, :, None], 0)
         return x
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor = None):

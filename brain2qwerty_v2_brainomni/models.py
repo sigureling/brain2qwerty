@@ -81,8 +81,10 @@ class BrainOmniBackbone(nn.Module):
         x = x + sensor_embedding + subject_embedding[:, None, None, :]
         return self.brain_encoder.spatial_forward(x, mask=mask)
 
-    def temporal_forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.brain_encoder.temporal_forward(x)
+    def temporal_forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        return self.brain_encoder.temporal_forward(x, mask=mask)
 
 
 class RMSLinearCTCHead(nn.Module):
@@ -166,6 +168,7 @@ class BrainOmniCTCModel(nn.Module):
         return self
 
     def compute_output_lens(self, neuro_sizes: torch.Tensor) -> torch.Tensor:
+        """Map raw lengths through patch alignment and overlapping Conv1d."""
         n_patches = torch.div(
             neuro_sizes + self.backbone.patch_size - 1,
             self.backbone.patch_size,
@@ -181,15 +184,22 @@ class BrainOmniCTCModel(nn.Module):
         pos: torch.Tensor,
         sensor_type: torch.Tensor,
         mask: torch.Tensor | None = None,
+        temporal_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         x = x.transpose(1, 2)
         subject_embedding = self.subject_embedding(day_idx.reshape(-1))
+        if mask is not None and temporal_mask is not None:
+            raise ValueError("pass either mask or temporal_mask, not both")
+        if temporal_mask is None:
+            temporal_mask = mask
+        if temporal_mask is not None and temporal_mask.ndim == 3:
+            temporal_mask = temporal_mask.any(dim=1)
+
         spatial = self.backbone.spatial_forward(
             x,
             pos,
             sensor_type,
             subject_embedding,
-            mask=mask,
         )
 
         output: dict[str, torch.Tensor] = {}
@@ -203,7 +213,7 @@ class BrainOmniCTCModel(nn.Module):
             )
             output["z_aux"] = z_aux
 
-        temporal = self.backbone.temporal_forward(spatial)
+        temporal = self.backbone.temporal_forward(spatial, mask=temporal_mask)
         temporal = temporal[:, :, 1:, :]
         output["c_out"] = self.ctc_head(temporal)
         return output

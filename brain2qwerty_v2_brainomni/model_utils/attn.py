@@ -95,7 +95,7 @@ class SelfAttention(nn.Module):
             q, k = self.rope_embedding_layer(q, k)
 
         # add head_dim
-        if mask != None:
+        if mask is not None and mask.ndim == 3:
             mask = mask.unsqueeze(1)
 
         output = (

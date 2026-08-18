@@ -58,6 +58,65 @@ def compute_output_lens(
     return (neuro_sizes - conv.kernel_size[0]) // conv.stride[0] + 1
 
 
+def build_brainomni_temporal_mask(
+    network: torch.nn.Module,
+    neuros: torch.Tensor,
+    neuro_sizes: torch.Tensor,
+) -> torch.Tensor:
+    """Convert collated MEG padding lengths to a temporal patch mask.
+
+    ``neuros`` is the collated ``(B, T, C)`` tensor and ``neuro_sizes`` contains
+    the valid input length for each item.  BrainOmni's temporal encoder operates
+    on ``W`` patch steps, so the returned boolean mask has shape ``(B, W)``.
+
+    ``W`` is computed from the exact Conv1d geometry used by
+    ``BrainOmniBackbone.spatial_forward``.  Input lengths are not rounded up to
+    a patch-size multiple, so the effective per-sample length follows the
+    floor-based Conv1d formula.
+    """
+    if neuros.ndim != 3:
+        raise ValueError(f"neuros must have shape (B, T, C), got {tuple(neuros.shape)}")
+    if neuro_sizes.ndim != 1 or neuro_sizes.shape[0] != neuros.shape[0]:
+        raise ValueError(
+            "neuro_sizes must have shape (B,) matching neuros, got "
+            f"{tuple(neuro_sizes.shape)} for batch size {neuros.shape[0]}"
+        )
+    if neuros.shape[1] == 0:
+        raise ValueError("neuros must contain at least one time sample")
+
+    # Lightning normally keeps the network as a child of the module, but
+    # unwrapping makes this helper safe when it is called with DDP/DataParallel
+    # wrappers as well.
+    model = network
+    while hasattr(model, "module") and isinstance(model.module, torch.nn.Module):
+        model = model.module
+    backbone = getattr(model, "backbone", None)
+    if backbone is None:
+        raise TypeError(
+            "build_brainomni_temporal_mask requires a BrainOmni network"
+        )
+
+    patch_stride = int(backbone.patch_stride)
+    if int(backbone.patch_size) <= 0 or patch_stride <= 0:
+        raise ValueError(
+            "unsupported BrainOmni patch geometry: "
+            f"patch_size={backbone.patch_size}, patch_stride={patch_stride}"
+        )
+
+    device = neuros.device
+    sizes = neuro_sizes.to(device=device, dtype=torch.long)
+    valid_steps = compute_output_lens(model, sizes)
+
+    batch_length = torch.tensor([neuros.shape[1]], device=device, dtype=torch.long)
+    padded_steps = int(compute_output_lens(model, batch_length).item())
+    padded_steps = max(padded_steps, 0)
+    valid_steps = valid_steps.clamp(min=0, max=padded_steps)
+
+    step_index = torch.arange(padded_steps, device=device).unsqueeze(0)
+    valid = step_index < valid_steps.unsqueeze(1)
+    return valid
+
+
 def apply_jitter(
     data: torch.Tensor, seg: ns.segments.Segment, feat: BaseExtractor
 ) -> torch.Tensor:

@@ -65,7 +65,8 @@ tensorboard --logdir "$BRAIN2QWERTY_RESULTS/logs"
 - 模型与训练：固定 16 Hz BrainOmni、可开关的辅助/最终双 CTC 头，
   `loss_alpha=0.7`；先冻结 backbone 训练 20 epochs，再联合训练 275 epochs。
   AdamW 使用学习率 `8e-4`、weight decay `1e-3`，阶段二为 500-step warmup
-  + cosine scheduler，bf16 mixed precision，4 块 GPU、梯度累积 32。
+  + cosine scheduler，bf16 mixed precision，4 块 GPU、训练 batch size 2、验证/测试
+  batch size 8、梯度累积 32。
 
 ## 标签与评估含义
 
