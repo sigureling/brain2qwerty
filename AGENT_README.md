@@ -109,7 +109,9 @@ effect.
 builds the config from `config/xp_config` and runs the pydantic `Experiment`:
 
 - `python -m <pkg>.main debug` → `debug_config()`: 1 timeline, 2 epochs, 1 GPU, no checkpoints.
-- `python -m <pkg>.main train` → `experiment_config()`; 8 GPUs by default, auto-capped to available.
+- `python -m <pkg>.main train` → `experiment_config()`. V1: 8 GPUs by default,
+  auto-capped to available. V2: exactly 4 GPUs required (asserted), keeping the
+  effective batch (×4 GPUs ×accumulate=4) equivalent to the paper's 8-GPU ×2 setup.
 - `python -m <pkg>.main eval --ckpt` → `eval_only=True`, loads the checkpoint and runs the
   test split on a **single device** so the prediction callback captures the whole split.
 - `python -m <pkg>.main cache` → builds the dataloaders once to pre-warm the feature
@@ -132,9 +134,10 @@ encoder produces one embedding per keystroke window → embeddings are **grouped
 one sentence-level MEG window passes through the Conv+Conformer encoder. Auxiliary
 and final logits each receive CTC loss and are blended with `loss_alpha=0.7`.
 `val/cer_epo` is the CTC-greedy checkpoint monitor. With the Spanish adapter the
-CTC target is the participant's actual valid key sequence, while prediction CSV
-reference text remains the source Sentence text; see
-`brain2qwerty_v2/SPANISHBCBL_ADAPTER.md` for the resulting metric interpretation.
+CTC target is the participant's actual valid key sequence. Predictions are saved to
+`predictions_test.json` and scored against the participant's `typed_text` (not the
+source Sentence reference text); see `brain2qwerty_v2/SPANISHBCBL_ADAPTER.md` for
+the resulting metric interpretation.
 
 ---
 
@@ -150,7 +153,7 @@ variables:
 |----|----|
 | `BRAIN2QWERTY_STUDIES` | SpanishBCBL root for V1 and the default V2 adapter |
 | `BRAIN2QWERTY_CACHE` | exca feature/timeline cache (large; persistent) |
-| `BRAIN2QWERTY_RESULTS` | checkpoints + prediction CSVs + CSV metric logs |
+| `BRAIN2QWERTY_RESULTS` | checkpoints + prediction JSONs + TensorBoard logs |
 | `WANDB_HOST` | optional W&B base URL for `--wandb` |
 
 ---

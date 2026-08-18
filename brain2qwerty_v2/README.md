@@ -43,7 +43,9 @@ event handling, unchanged V2 numerical/training settings, and validation notes.
 
 ## Quickstart
 
-Each step is its own mode of `main` (the same set of commands as V1). Training uses one node (8 GPUs by default) and automatically falls back to a single GPU.
+Each step is its own mode of `main` (the same set of commands as V1). Full training
+requires exactly 4 GPUs (asserted, keeping the effective batch equivalent to the
+paper's 8-GPU setup); `debug` and `eval` run on a single device.
 
 ```bash
 # (optional) pre-warm the feature cache (--debug for the 1-timeline subset)

@@ -63,7 +63,7 @@ tensorboard --logdir "$BRAIN2QWERTY_RESULTS/logs"
   time stretch；白噪声标准差为 0。
 - 模型与训练：Conv + Conformer、辅助/最终双 CTC 头，`loss_alpha=0.7`，
   AdamW（学习率 `8e-4`、weight decay `1e-3`），500-step warmup + cosine
-  scheduler，275 epochs，bf16 mixed precision，梯度累积 2。
+  scheduler，275 epochs，bf16 mixed precision，4 块 GPU、梯度累积 4。
 
 ## 标签与评估含义
 
