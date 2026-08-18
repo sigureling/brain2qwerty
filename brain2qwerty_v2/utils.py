@@ -4,13 +4,10 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
 import typing as tp
 
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 import neuralset as ns
 from neuralset.extractors import BaseExtractor
@@ -50,24 +47,6 @@ key_to_int = {
 }
 letters_withblank = ["-"] + list(key_to_int.keys())
 
-# RoBERTa-large scores the semantic error rate; override with a local cache path.
-ROBERTA_PATH = os.environ.get("BRAIN2QWERTY_ROBERTA", "roberta-large")
-
-
-def build_mlp(
-    input_dim: int, output_dim: int, num_layers: int = 1, hidden_dim: int | None = None
-) -> nn.Sequential:
-    """Stack of ``num_layers`` (Linear, LayerNorm, GELU) blocks."""
-    mid = hidden_dim or output_dim
-    layers: list[nn.Module] = []
-    in_d = input_dim
-    for i in range(num_layers):
-        out_d = output_dim if i == num_layers - 1 else mid
-        layers.extend([nn.Linear(in_d, out_d), nn.LayerNorm(out_d), nn.GELU()])
-        in_d = out_d
-    return nn.Sequential(*layers)
-
-
 def compute_output_lens(
     network: torch.nn.Module, neuro_sizes: torch.Tensor
 ) -> torch.Tensor:
@@ -87,115 +66,30 @@ def apply_jitter(
     return data[:, int(jitter_amount) :]
 
 
-# --- Hard DTW for word-level contrastive matching --------------------------
-@torch.no_grad()
-def hard_dtw_path(cost: torch.Tensor) -> list[tuple[int, int]]:
-    """Standard DTW with backtracking; returns a monotonic alignment path."""
-    N, M = cost.shape
-    D = cost.new_full((N + 1, M + 1), 1e9)
-    D[0, 0] = 0.0
-    for i in range(1, N + 1):
-        for j in range(1, M + 1):
-            D[i, j] = cost[i - 1, j - 1] + min(
-                D[i - 1, j - 1].item(), D[i - 1, j].item(), D[i, j - 1].item()
-            )
-    path: list[tuple[int, int]] = []
-    i, j = N, M
-    while i > 0 and j > 0:
-        path.append((i - 1, j - 1))
-        _, i, j = min(
-            [
-                (D[i - 1, j - 1].item(), i - 1, j - 1),
-                (D[i - 1, j].item(), i - 1, j),
-                (D[i, j - 1].item(), i, j - 1),
-            ],
-            key=lambda c: c[0],
-        )
-    return path[::-1]
-
-
-def dtw_matched_pairs(
-    pred_embeds: torch.Tensor, gt_embeds: torch.Tensor
-) -> list[tuple[int, int]]:
-    """One-to-one (pred word -> GT word) matches via hard DTW on cosine cost."""
-    cost = 1.0 - F.cosine_similarity(
-        pred_embeds.unsqueeze(1), gt_embeds.unsqueeze(0), dim=-1
-    )
-    matched: dict[int, int] = {}
-    for pi, gi in hard_dtw_path(cost):
-        matched.setdefault(pi, gi)
-    return list(matched.items())
-
-
-# --- Prediction CSV helpers (CER / WER / SemER) ----------------------------
-def _encode_sentences(sentences: list[str], tok, mdl, batch_size: int = 64) -> np.ndarray:
-    all_embs = []
-    for i in range(0, len(sentences), batch_size):
-        enc = tok(
-            sentences[i : i + batch_size],
-            padding=True,
-            truncation=True,
-            max_length=128,
-            return_tensors="pt",
-        )
-        with torch.no_grad():
-            out = mdl(**enc)
-        mask = enc["attention_mask"].unsqueeze(-1).float()
-        emb = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-        all_embs.append(F.normalize(emb.float(), p=2, dim=-1).numpy())
-    return np.concatenate(all_embs, axis=0)
-
-
-def compute_semer_batch(preds: list[str], refs: list[str]) -> list[float]:
-    """Semantic error rate per sample: L2 distance of mean-pooled RoBERTa embeddings."""
-    from transformers import AutoModel, AutoTokenizer
-
-    tok = AutoTokenizer.from_pretrained(ROBERTA_PATH)
-    mdl = AutoModel.from_pretrained(ROBERTA_PATH)
-    mdl.eval()
-    emb_pred = _encode_sentences(preds, tok, mdl)
-    emb_ref = _encode_sentences(refs, tok, mdl)
-    return np.linalg.norm(emb_pred - emb_ref, axis=-1).tolist()
-
-
-def prediction_fieldnames(
-    has_ctc: bool = False, has_segment_meta: bool = False
-) -> list[str]:
+def prediction_fieldnames(has_segment_meta: bool = False) -> list[str]:
+    """Return the columns used by the CTC prediction CSV."""
     cols: list[str] = []
     if has_segment_meta:
         cols += ["sentence_UID", "subject"]
-    cols.append("true_text")
-    if has_ctc:
-        cols += ["ctc_text", "CTC_CER"]
-    cols += ["pred_text", "CER", "WER", "SemER"]
+    cols += ["true_text", "ctc_text", "CTC_CER"]
     return cols
 
 
-def compute_sample_metrics(
-    true_texts: list[str],
-    pred_texts: list[str],
-    ctc_texts: list[str] | None = None,
-    with_semer: bool = True,
+def compute_ctc_sample_metrics(
+    true_texts: list[str], ctc_texts: list[str]
 ) -> list[dict]:
-    """Per-sentence CER / WER / SemER (and optional CTC CER) for the predictions CSV."""
-    from torchmetrics.text import CharErrorRate, WordErrorRate
+    """Compute per-sentence CTC CER for the predictions CSV."""
+    from torchmetrics.text import CharErrorRate
 
-    cer_fn, wer_fn = CharErrorRate(), WordErrorRate()
+    cer_fn = CharErrorRate()
     rows: list[dict] = []
-    for i, (tgt, prd) in enumerate(zip(true_texts, pred_texts)):
+    for tgt, ctc_text in zip(true_texts, ctc_texts):
         row: dict[str, tp.Any] = {
             "true_text": tgt,
-            "pred_text": prd,
-            "CER": cer_fn([prd], [tgt]).item(),
-            "WER": wer_fn([prd], [tgt]).item(),
+            "ctc_text": ctc_text,
+            "CTC_CER": cer_fn([ctc_text], [tgt]).item(),
         }
-        if ctc_texts:
-            row["ctc_text"] = ctc_texts[i]
-            row["CTC_CER"] = cer_fn([ctc_texts[i]], [tgt]).item()
         rows.append(row)
-    if with_semer and true_texts:
-        for row, val in zip(rows, compute_semer_batch(pred_texts, true_texts)):
-            row["SemER"] = val
     return rows
 
 
@@ -206,14 +100,17 @@ def label_to_text(ids: list[int]) -> str:
     return "".join(" " if c == "&" else c for c in chars)
 
 
-def ctc_greedy_decode(ctc_logits: torch.Tensor) -> list[str]:
+def ctc_greedy_decode(
+    ctc_logits: torch.Tensor, output_lens: torch.Tensor | None = None
+) -> list[str]:
     """Greedy CTC decode (blank=0, collapse repeats, '&' -> space)."""
     preds = ctc_logits.argmax(dim=-1)
     texts: list[str] = []
     for b in range(preds.shape[0]):
         chars: list[str] = []
         prev = 0
-        for t in range(preds.shape[1]):
+        end = preds.shape[1] if output_lens is None else int(output_lens[b].item())
+        for t in range(end):
             c = preds[b, t].item()
             if c != prev and c != 0 and c < len(letters_withblank):
                 ch = letters_withblank[c]
@@ -258,34 +155,3 @@ def build_events(study, transforms, tail_range: tuple[float, float] = (0.4, 0.5)
         tail_range[0], tail_range[1], len(sentences)
     )
     return events
-
-
-def prepare_word_embeddings(data, word_extractor_config) -> dict[str, list]:
-    """Per-sentence list of LLM word embeddings used as the contrastive target."""
-    from neuralset.events import etypes
-
-    events = build_events(data.study, data.transforms, (data.tail_min, data.tail_max))
-    word_events = events[events["type"] == "Word"]
-    assert len(word_events) > 0, "No Word events; add WordCreator to data.transforms."
-
-    ext = ns.extractors.HuggingFaceText(**word_extractor_config)
-    ext.prepare(events)
-    word_events = word_events.sort_values(["sentence_UID", "word_order"])
-
-    lookup: dict[str, list] = {}
-    for sent_text, grp in word_events.groupby("sentence", sort=False):
-        if sent_text in lookup:
-            continue
-        word_ev_list = [
-            etypes.Word(
-                text=row["text"],
-                context=row["context"],
-                sentence=row["sentence"],
-                start=float(row["start"]),
-                duration=float(row["duration"]),
-                timeline=str(row["timeline"]),
-            )
-            for _, row in grp.iterrows()
-        ]
-        lookup[str(sent_text)] = list(ext._get_data(word_ev_list))
-    return lookup

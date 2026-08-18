@@ -15,10 +15,7 @@ import torch.nn as nn
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.strategies import DDPStrategy
-from peft import LoraConfig, TaskType, get_peft_model
 from torch.utils.data import DataLoader
-from torchmetrics.text import CharErrorRate, WordErrorRate
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import neuralset as ns
 from neuralset.events.study import EventsTransform
@@ -28,11 +25,9 @@ from neuraltrain.utils import WandbLoggerConfig
 from . import models as _models  # noqa: F401  (registers the ConvConformer encoder)
 from . import transforms as _transforms  # noqa: F401  (registers EventsTransforms)
 from .callbacks import PredictionCSVCallback
-from .config.xp_config import LLM, WORD_EXTRACTOR
 from .data import SentenceDataset
-from .metrics import SemanticErrorRate
-from .pl_module import NeuroLLMModule
-from .utils import ChannelPositions2D, accelerator, build_events, prepare_word_embeddings
+from .pl_module import NeuroCTCModule
+from .utils import ChannelPositions2D, accelerator, build_events
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +35,7 @@ log = logging.getLogger(__name__)
 class Data(pydantic.BaseModel):
     """Sentence-level dataloaders for Brain2Qwerty V2.
 
-    Runs the study, applies the preprocessing/split/word transforms, extends each
+    Runs the study, applies the preprocessing and split transforms, extends each
     sentence window by a small random tail, and builds one padded dataloader per
     split (train-time MEG onset jitter is applied inside the dataset).
     """
@@ -117,7 +112,7 @@ class Data(pydantic.BaseModel):
 
 
 class Experiment(pydantic.BaseModel):
-    """Train and evaluate the Brain2Qwerty V2 end-to-end pipeline."""
+    """Train and evaluate the Brain2Qwerty V2 CTC pipeline."""
 
     model_config = pydantic.ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
@@ -133,39 +128,9 @@ class Experiment(pydantic.BaseModel):
     devices: int = 8
     output_dir: str = "."
 
-    # loss weighting + staged schedule
-    alpha: float = 0.1
-    beta: float = 0.01
+    # auxiliary/final CTC loss weighting
     loss_alpha: float = 0.7
-    ctc_start_epoch: int = 0
-    contrastive_start_epoch: int = 150
-    llm_start_epoch: int = 225
     encoder_lr: float | None = None
-
-    # contrastive / segmenter
-    word_pool_n_layers: int = 2
-    seg_include_blanks: bool = True
-    word_extractor_config: dict = pydantic.Field(
-        default_factory=lambda: dict(WORD_EXTRACTOR)
-    )
-
-    # LLM + LoRA
-    llm_name: str = LLM
-    lora_rank: int = 2
-    lora_alpha_value: int = 4
-    lora_dropout: float = 0.0
-    lora_target_modules: list[str] = pydantic.Field(
-        default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj"]
-    )
-
-    # generation
-    max_new_tokens: int = 60
-    num_beams: int = 16
-    val_num_beams: int = 1
-    length_penalty: float = 0.2
-    label_smoothing: float = 0.02
-    meg_dropout_rate: float = 0.1
-    ctc_dropout_rate: float = 0.1
 
     optimizer_config: dict = pydantic.Field(
         default_factory=lambda: {"lr": 8e-4, "weight_decay": 1e-3}
@@ -182,79 +147,25 @@ class Experiment(pydantic.BaseModel):
     wandb_config: WandbLoggerConfig | None = None
 
     _trainer: pl.Trainer | None = None
-    _module: NeuroLLMModule | None = None
+    _module: NeuroCTCModule | None = None
 
     def model_post_init(self, log__: tp.Any) -> None:
         pl.seed_everything(self.seed, workers=True)
         torch.set_float32_matmul_precision("medium")
 
-    def _build_module(self, loaders: dict) -> NeuroLLMModule:
-        word_embed_lookup = prepare_word_embeddings(self.data, self.word_extractor_config)
+    def _build_module(self, loaders: dict) -> NeuroCTCModule:
         n_in_channels = loaders["train"].dataset[0].data["neuros"].shape[1]
         network = self.brain_model_config.build(
             n_in_channels=n_in_channels, n_outputs=self.num_classes
         )
-        word_pool_dim = getattr(self.brain_model_config, "dim", 1024)
 
-        llm = AutoModelForCausalLM.from_pretrained(
-            self.llm_name, torch_dtype=torch.bfloat16, trust_remote_code=True
-        )
-        llm = get_peft_model(
-            llm,
-            LoraConfig(
-                task_type=TaskType.CAUSAL_LM,
-                inference_mode=False,
-                r=self.lora_rank,
-                lora_alpha=self.lora_alpha_value,
-                lora_dropout=self.lora_dropout,
-                target_modules=list(self.lora_target_modules),
-            ),
-        )
-        llm.print_trainable_parameters()
-        tokenizer = AutoTokenizer.from_pretrained(self.llm_name)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        llm_hidden = llm.get_base_model().config.hidden_size
-        adapter: nn.Module = (
-            nn.Linear(word_pool_dim, llm_hidden)
-            if word_pool_dim != llm_hidden
-            else nn.Identity()
-        )
-        llm_metrics = {
-            "CER": CharErrorRate(),
-            "WER": WordErrorRate(),
-            "SemER": SemanticErrorRate(),
-        }
-
-        module = NeuroLLMModule(
+        module = NeuroCTCModule(
             network=network,
-            llm=llm,
-            tokenizer=tokenizer,
-            word_proj_adapter=adapter,
-            word_embed_lookup=word_embed_lookup,
-            word_pool_dim=word_pool_dim,
-            word_pool_n_layers=self.word_pool_n_layers,
-            seg_include_blanks=self.seg_include_blanks,
-            alpha=self.alpha,
-            beta=self.beta,
             loss_alpha=self.loss_alpha,
-            ctc_start_epoch=self.ctc_start_epoch,
-            contrastive_start_epoch=self.contrastive_start_epoch,
-            llm_start_epoch=self.llm_start_epoch,
             encoder_lr=self.encoder_lr,
-            max_new_tokens=self.max_new_tokens,
-            num_beams=self.num_beams,
-            val_num_beams=self.val_num_beams,
-            length_penalty=self.length_penalty,
-            label_smoothing=self.label_smoothing,
-            meg_dropout_rate=self.meg_dropout_rate,
-            ctc_dropout_rate=self.ctc_dropout_rate,
             optimizer_config=self.optimizer_config,
             scheduler_config=self.scheduler_config,
             preprocess_config=self.preprocess_config,
-            llm_metrics=llm_metrics,
-            save_dir=self.output_dir,
         )
 
         # materialise lazy params (channel merger) before DDP wraps the model
@@ -276,14 +187,12 @@ class Experiment(pydantic.BaseModel):
     def _trainer_setup(self) -> pl.Trainer:
         accel, devices = accelerator(self.devices)
         if self.eval_only:
-            # Evaluate in a single process (like V1): the prediction callback then
-            # captures the whole test split with no DDP sharding to reconcile.
+            # Evaluate in a single process so the prediction callback captures the
+            # whole test split without DDP sharding to reconcile.
             devices = 1
         callbacks: list[pl.Callback] = [PredictionCSVCallback(save_dir=self.output_dir)]
         if self.save_checkpoints:
-            # Two checkpoints: the CTC encoder (cer_epo) and the LLM decoder (WER),
-            # so the best weights are kept whichever phase you stop in.
-            callbacks += [
+            callbacks.append(
                 ModelCheckpoint(
                     dirpath=self.output_dir,
                     filename="best_ctc",
@@ -291,15 +200,8 @@ class Experiment(pydantic.BaseModel):
                     save_top_k=1,
                     monitor="val/cer_epo",
                     mode="min",
-                ),
-                ModelCheckpoint(
-                    dirpath=self.output_dir,
-                    filename="best_llm",
-                    save_top_k=1,
-                    monitor="val/WER",
-                    mode="min",
-                ),
-            ]
+                )
+            )
         loggers: list = [CSVLogger(self.output_dir, name="logs")]
         if self.wandb_config is not None:
             loggers.append(self._build_wandb_logger())

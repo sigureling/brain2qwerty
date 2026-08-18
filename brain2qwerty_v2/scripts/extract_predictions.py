@@ -10,8 +10,7 @@ import os
 import Levenshtein
 import pandas as pd
 
-# The headline metric reported for V2 (V1 reports CER instead).
-HEADLINE_METRIC = "WER"
+HEADLINE_METRIC = "CTC_CER"
 
 
 def compute_cer(true: str, pred: str) -> float:
@@ -21,32 +20,23 @@ def compute_cer(true: str, pred: str) -> float:
     return Levenshtein.distance(true, pred) / len(true)
 
 
-def compute_wer(true: str, pred: str) -> float:
-    true_words, pred_words = str(true).split(), str(pred).split()
-    if len(true_words) == 0:
-        return float("nan")
-    return Levenshtein.distance(true_words, pred_words) / len(true_words)
-
-
 def summarize(df: pd.DataFrame) -> pd.DataFrame:
-    # Recompute CER/WER from the saved true/pred text so the script is
-    # self-contained (CTC_CER and SemER are read from the CSV when present).
+    """Recompute CTC CER from the saved reference and decoded text."""
     df = df.copy()
-    df["CER"] = df.apply(lambda r: compute_cer(r["true_text"], r["pred_text"]), axis=1)
-    df["WER"] = df.apply(lambda r: compute_wer(r["true_text"], r["pred_text"]), axis=1)
-    if "ctc_text" in df.columns:
-        df["CTC_CER"] = df.apply(
-            lambda r: compute_cer(r["true_text"], r["ctc_text"]), axis=1
-        )
+    df[HEADLINE_METRIC] = df.apply(
+        lambda r: compute_cer(r["true_text"], r["ctc_text"]), axis=1
+    )
     return df
 
 
 def print_summary(df: pd.DataFrame) -> None:
-    cols = ["CER", "WER"] + [c for c in ("CTC_CER", "SemER") if c in df.columns]
+    cols = [HEADLINE_METRIC]
     has_subject = "subject" in df.columns and df["subject"].notna().any()
     group = df["subject"] if has_subject else pd.Series("all", index=df.index)
 
-    header = f"{'Subject':<22} {'N':>6} " + " ".join(f"{c:>9}" for c in cols)
+    header = f"{'Subject':<22} {'N':>6} " + " ".join(
+        f"{c:>9}" for c in cols
+    )
     print(f"\n{header}\n" + "-" * len(header))
     for subject in sorted(group.unique()):
         sdf = df[group == subject]
@@ -54,8 +44,6 @@ def print_summary(df: pd.DataFrame) -> None:
         print(f"{str(subject):<22} {len(sdf):>6} {vals}")
     print("-" * len(header))
 
-    # Two aggregates: sentence-wise (mean over all sentences) and the reported
-    # per-subject average (mean per subject, then mean across subjects).
     sent = " ".join(f"{df[c].mean():>9.3f}" for c in cols)
     print(f"{'Overall (sentence)':<22} {len(df):>6} {sent}")
     if has_subject:
@@ -63,7 +51,6 @@ def print_summary(df: pd.DataFrame) -> None:
         macro = " ".join(f"{per_subj[c].mean():>9.3f}" for c in cols)
         n_subj = df["subject"].nunique()
         print(f"{'Overall (per-subject)':<22} {n_subj:>6} {macro}")
-        # Headline metric (V2 = WER) with standard error of the mean across subjects.
         m = per_subj[HEADLINE_METRIC]
         sem = m.std(ddof=1) / (len(m) ** 0.5)
         print(
@@ -74,11 +61,8 @@ def print_summary(df: pd.DataFrame) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    # Purpose of this file: read the per-sentence predictions CSV written by
-    # PredictionCSVCallback (true/ctc/pred text per sentence) and report the
-    # final metrics, both sentence-wise and averaged per subject (the headline
-    # WER). Mirrors brain2qwerty_v1/scripts/extract_predictions.py.
-    parser = argparse.ArgumentParser(description="Summarize V2 predictions CSV")
+    """Summarize the CTC prediction CSV written by ``PredictionCSVCallback``."""
+    parser = argparse.ArgumentParser(description="Summarize CTC predictions CSV")
     parser.add_argument("--input", required=True, help="predictions CSV or its directory")
     parser.add_argument("--split", default="val", choices=["val", "test"])
     parser.add_argument("--output", default=None, help="optional per-subject summary CSV")
@@ -101,8 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     print_summary(df)
     if args.output and "subject" in df.columns:
-        cols = ["CER", "WER"] + [c for c in ("CTC_CER", "SemER") if c in df.columns]
-        df.groupby("subject")[cols].mean().to_csv(args.output)
+        df.groupby("subject")[[HEADLINE_METRIC]].mean().to_csv(args.output)
         print(f"Saved per-subject summary to {args.output}")
 
 

@@ -9,11 +9,11 @@ from pathlib import Path
 
 import lightning.pytorch as pl
 
-from .utils import compute_sample_metrics, prediction_fieldnames
+from .utils import compute_ctc_sample_metrics, prediction_fieldnames
 
 
 class PredictionCSVCallback(pl.Callback):
-    """Save per-sentence predictions (text + CER/WER/SemER) to ``predictions_test.csv``.
+    """Save per-sentence CTC predictions to ``predictions_test.csv``.
 
     Only written at test time (not every validation epoch). The rows accumulated by
     the Lightning module are gathered across ranks first, which is a no-op for the
@@ -36,18 +36,14 @@ class PredictionCSVCallback(pl.Callback):
             return [r for rank_rows in gathered for r in rank_rows]
         return []
 
-    def _save(self, trainer, rows, filename, with_semer):
+    def _save(self, trainer, rows, filename):
         rows = self._gather_rows(trainer, rows)
         if not rows or trainer.global_rank != 0:
             return
-        ctc_texts = [r.get("ctc_text", "") for r in rows]
-        has_ctc = any(ctc_texts)
         has_segment_meta = any(r.get("subject") for r in rows)
-        rows_with_metrics = compute_sample_metrics(
+        rows_with_metrics = compute_ctc_sample_metrics(
             [r["true_text"] for r in rows],
-            [r["pred_text"] for r in rows],
-            ctc_texts=ctc_texts if has_ctc else None,
-            with_semer=with_semer,
+            [r["ctc_text"] for r in rows],
         )
         for row_m, row_raw in zip(rows_with_metrics, rows):
             if has_segment_meta:
@@ -57,7 +53,7 @@ class PredictionCSVCallback(pl.Callback):
         path = self.save_dir / filename
         with open(path, "w", newline="") as f:
             writer = csv.DictWriter(
-                f, fieldnames=prediction_fieldnames(has_ctc, has_segment_meta)
+                f, fieldnames=prediction_fieldnames(has_segment_meta)
             )
             writer.writeheader()
             writer.writerows(rows_with_metrics)
@@ -65,4 +61,4 @@ class PredictionCSVCallback(pl.Callback):
 
     def on_test_epoch_end(self, trainer, pl_module):
         rows = getattr(pl_module, "_test_predictions", [])
-        self._save(trainer, rows, "predictions_test.csv", with_semer=True)
+        self._save(trainer, rows, "predictions_test.csv")

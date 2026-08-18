@@ -15,15 +15,8 @@ STUDY_PATH = os.environ.get(
 CACHE = os.environ.get("BRAIN2QWERTY_CACHE", str(Path.home() / ".cache" / "brain2qwerty"))
 RESULTS = os.environ.get("BRAIN2QWERTY_RESULTS", str(Path(CACHE) / "results"))
 
-# the paper uses a different LLM for the reported performance
-LLM = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
-# Frozen LLM token embeddings used as the word-level contrastive target.
-WORD_EXTRACTOR = {"model_name": LLM, "layers": 0, "contextualized": False}
-
-
 def experiment_config() -> dict:
-    """Full Brain2Qwerty V2 configuration (EnglishBCBL, MEG; CTC + contrastive + LLM)."""
+    """Full Brain2Qwerty V2 configuration (EnglishBCBL, MEG; CTC-only)."""
     return {
         "output_dir": RESULTS,
         "seed": 123,
@@ -43,7 +36,6 @@ def experiment_config() -> dict:
                         "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}
                     },
                 },
-                {"name": "WordCreator"},
             ],
             "neuro": {
                 "name": "MegExtractor",
@@ -80,18 +72,8 @@ def experiment_config() -> dict:
             "time_stretch": True,
         },
         "brain_model_config": ENCODER,
-        # staged 3-loss schedule: CTC from 0, +contrastive at 150, +LLM at 225
-        "alpha": 0.1,
-        "beta": 0.01,
+        # Blend the auxiliary and final CTC heads.
         "loss_alpha": 0.7,
-        "ctc_start_epoch": 0,
-        "contrastive_start_epoch": 150,
-        "llm_start_epoch": 225,
-        # LLM + LoRA all-subjects rank=2
-        "llm_name": LLM,
-        "lora_rank": 2,
-        "word_extractor_config": WORD_EXTRACTOR,
-        "num_beams": 16,
         "optimizer_config": {"lr": 8e-4, "weight_decay": 1e-3},
         "scheduler_config": {
             "name": "WarmupCosine",
@@ -104,16 +86,13 @@ def experiment_config() -> dict:
 
 
 def debug_config() -> dict:
-    """Smoke-test config: one timeline, all losses from epoch 0, single GPU."""
+    """Smoke-test config: one timeline, single GPU."""
     cfg = experiment_config()
     cfg["data"]["study"]["query"] = "timeline_index == 0"
     cfg["data"]["batch_size"] = 4
     cfg["data"]["val_batch_size"] = 4
     cfg["data"]["test_batch_size"] = 4
     cfg["max_epochs"] = 2
-    cfg["contrastive_start_epoch"] = 0
-    cfg["llm_start_epoch"] = 0
-    cfg["num_beams"] = 1
     cfg["devices"] = 1
     cfg["save_checkpoints"] = False
     return cfg

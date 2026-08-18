@@ -11,7 +11,7 @@ from neuraltrain.models.conv_transformer import ConvTransformer, ConvTransformer
 
 
 class ConvConformer(ConvTransformer):
-    """Encoder config: ``ConvTransformer`` plus the auxiliary CTC-head flag."""
+    """Encoder config: ``ConvTransformer`` plus an auxiliary CTC-head flag."""
 
     aux_prediction: bool = False
 
@@ -24,14 +24,7 @@ class ConvConformer(ConvTransformer):
 
 
 class ConvConformerModel(ConvTransformerModel):
-    """Conv + Conformer encoder with an auxiliary CTC head and per-frame outputs.
-
-    The public ``ConvTransformerModel`` dropped the auxiliary-prediction path and
-    the per-frame ``z_final`` output; both are required by the V2 word segmenter,
-    so they are re-added here while reusing the inherited forward helpers. Returns
-    ``c_out`` (CTC logits), ``z_final`` (per-frame features for segmentation) and,
-    when ``aux_prediction`` is set, the auxiliary logits ``z``/``z_aux``.
-    """
+    """Conv + Conformer encoder with final and optional auxiliary CTC logits."""
 
     def __init__(self, in_channels: int, out_channels: int | None, config: ConvConformer):
         super().__init__(in_channels, out_channels, config)
@@ -72,8 +65,6 @@ class ConvConformerModel(ConvTransformerModel):
 
         out = {
             "z": z_aux if self.aux_prediction else z_enc,
-            "z_enc": z_enc,
-            "z_final": z_final,
             "c_out": c_out,
         }
         if z_aux is not None:

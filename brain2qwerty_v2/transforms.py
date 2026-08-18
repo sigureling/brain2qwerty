@@ -116,41 +116,6 @@ class Brain2QwertyV2Splitter(EventsTransform):
         return events
 
 
-class WordCreator(EventsTransform):
-    """Create one Word event per whitespace token of each Sentence.
-
-    Each Word inherits the parent Sentence's identifiers/timing and records its
-    ``word_order`` and left ``context`` so contextualised text embeddings can be
-    computed as the contrastive target.
-    """
-
-    def _run(self, events: pd.DataFrame) -> pd.DataFrame:
-        sents = events[events["type"] == "Sentence"]
-        if sents.empty:
-            return events
-        inherit_cols = [
-            c
-            for c in ("timeline", "subject", "start", "duration", "sentence_UID")
-            if c in events.columns
-        ]
-        word_rows: list[dict] = []
-        for _, row in sents.iterrows():
-            words = str(row["text"]).strip().split()
-            for idx, word in enumerate(words):
-                wr = {
-                    "type": "Word",
-                    "text": word,
-                    "sentence": str(row["text"]).strip(),
-                    "context": " ".join(words[: idx + 1]),
-                    "word_order": idx,
-                }
-                wr.update({col: row[col] for col in inherit_cols})
-                word_rows.append(wr)
-        if not word_rows:
-            return events
-        return pd.concat([events, pd.DataFrame(word_rows)], ignore_index=True)
-
-
 class SentenceKeySeq(BaseText):
     """Turn each sentence into the integer character sequence the CTC head predicts.
 
