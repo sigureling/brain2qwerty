@@ -23,10 +23,9 @@ non-invasive MEG. Each generation is a **self-contained Python package**:
   Transformer), trained with per-keystroke cross-entropy. Dataset: **SpanishBCBL**
   (`Pinet2024Meg`). Reported MEG CER ≈ 0.36 (Conv+Transformer, no language model);
   the optional N-gram rescoring lowers it further.
-- **`brain2qwerty_v2/`** — sentence-level end-to-end decoder. A Conv+Conformer CTC
-  encoder, a word-level contrastive aligner (SigLIP + DTW), and a LoRA-adapted LLM,
-  trained jointly on a **staged 3-loss schedule**. Dataset:
-  **EnglishBCBL** (`PinetAudio2025`, not yet public).
+- **`brain2qwerty_v2/`** — sentence-level end-to-end Conv+Conformer decoder with
+  auxiliary and final CTC heads. The default config runs the V2 numerical and
+  training pipeline on **SpanishBCBL** (`Pinet2024Meg`) through a minimal adapter.
 
 The two packages are intentionally parallel: same file names, same config/CLI
 conventions. Learn one and you know the other.
@@ -51,22 +50,22 @@ brain2qwerty/
 │   ├── callbacks.py          LogSentencePredictions
 │   ├── scripts/              extract_predictions.py, ngram_decoding.py
 │   └── README.md
-├── brain2qwerty_v2/        sentence decoder (CTC + contrastive + LLM)
+├── brain2qwerty_v2/        sentence decoder (CTC-only)
 │   ├── config/{model_config,xp_config}.py
 │   ├── cli.py, main.py       (main = SentenceDataset config glue + Experiment)
 │   ├── data.py               SentenceDataset (jitter + padded collate)
-│   ├── transforms.py         EnglishBCBLPreprocessing, Brain2QwertyV2Splitter,
-│   │                          WordCreator, SentenceKeySeq (CTC-label extractor)
-│   ├── models.py             ChannelPositions2D, ConvConformer(+Model),
-│   │                          ctc_greedy_decode, label_to_text, CTCSpaceSegmenter
-│   ├── losses.py             CtcLoss, WordContrastiveLoss
-│   ├── metrics.py            CharacterErrorRate (CTC monitor), SemER
+│   ├── transforms.py         SpanishBCBLV2Preprocessing, Brain2QwertyV2Splitter,
+│   │                          SentenceKeySeq (CTC-label extractor)
+│   ├── models.py             ConvConformer(+Model)
+│   ├── losses.py             CtcLoss
+│   ├── metrics.py            CharacterErrorRate (CTC monitor)
 │   ├── augmentations.py      Preprocess (on-device MEG augmentation)
-│   ├── pl_module.py          NeuroLLMModule (3-loss, staged schedule)
-│   ├── utils.py              key_to_int, apply_jitter, DTW, MLP, prediction helpers
+│   ├── pl_module.py          NeuroCTCModule
+│   ├── utils.py              key_to_int, apply_jitter, prediction helpers
 │   └── README.md
 ├── studies/                 vendored study definitions
-│   └── spanishbcbl.py        Pinet2024Meg  (alias "SpanishBCBL")
+│   ├── spanishbcbl.py        Pinet2024Meg  (alias "SpanishBCBL")
+│   └── spanishbcbl_participants.py  shared cohort exclusions/merges
 ├── tests/                   fast CPU unit tests + opt-in live data checks
 ├── pyproject.toml           pinned dependencies (reproducibility)
 └── README.md, AGENT_README.md
@@ -96,12 +95,11 @@ Two model behaviours are **not** in the public packages and are re-added locally
    Fourier positional embedding from the paper. The subclass bypasses only that
    guard; numerics are identical.
 2. `ConvConformer` / `ConvConformerModel` (V2 `models.py`): subclass the public
-   `ConvTransformer` to re-add the auxiliary CTC head (`aux_prediction`) and the
-   per-frame `z_final` output used by the word segmenter.
+   `ConvTransformer` to re-add the auxiliary CTC head (`aux_prediction`).
 
 Study definitions are **vendored** under `studies/`. Importing `studies` registers
-them so `Study(name="Pinet2024Meg")` / `"PinetAudio2025"` resolve. Every entry point
-does `import studies` for this side effect.
+`Study(name="Pinet2024Meg")`. Every entry point does `import studies` for this side
+effect.
 
 ---
 
@@ -130,16 +128,13 @@ encoder produces one embedding per keystroke window → embeddings are **grouped
 → per-keystroke cross-entropy. CER is the Levenshtein-based `CER` metric. The
 `SentenceGroupedDistributedSampler` keeps a sentence's keystrokes on one rank.
 
-### V2 forward (NeuroLLMModule)
-one encoder forward feeds three losses, combined as
-`loss = w_ctc·CTC + w_con·contrastive + w_llm·LLM`, with weights `(1-α-β, α, β)`
-gated by epoch (`ctc/contrastive/llm_start_epoch`) and renormalised over the active
-losses. The CTC head has an auxiliary logits path blended via `loss_alpha`
-(`0.3·c_out + 0.7·z`). `CTCSpaceSegmenter` groups encoder frames into pseudo-words
-(contrastive target = LLM word embeddings); the LoRA LLM autoregressively generates
-the sentence from `[CTC text] + [MEG word embeds]`. Reported test metrics: **CER, WER,
-SemER** (RoBERTa-large embedding distance); `val/cer_epo` is the CTC-greedy monitor
-used for checkpointing.
+### V2 forward (NeuroCTCModule)
+one sentence-level MEG window passes through the Conv+Conformer encoder. Auxiliary
+and final logits each receive CTC loss and are blended with `loss_alpha=0.7`.
+`val/cer_epo` is the CTC-greedy checkpoint monitor. With the Spanish adapter the
+CTC target is the participant's actual valid key sequence, while prediction CSV
+reference text remains the source Sentence text; see
+`brain2qwerty_v2/SPANISHBCBL_ADAPTER.md` for the resulting metric interpretation.
 
 ---
 
@@ -153,13 +148,10 @@ variables:
 
 | Var | Meaning |
 |----|----|
-| `BRAIN2QWERTY_STUDIES` | studies root for V1 (SpanishBCBL) |
-| `BRAIN2QWERTY_STUDIES_EN` | EnglishBCBL data root for V2 (`.../pinet2025`) |
+| `BRAIN2QWERTY_STUDIES` | SpanishBCBL root for V1 and the default V2 adapter |
 | `BRAIN2QWERTY_CACHE` | exca feature/timeline cache (large; persistent) |
 | `BRAIN2QWERTY_RESULTS` | checkpoints + prediction CSVs + CSV metric logs |
-| `BRAIN2QWERTY_ROBERTA` | RoBERTa id/path for SemER (default `roberta-large`) |
 | `WANDB_HOST` | optional W&B base URL for `--wandb` |
-| `HF_HOME` | HuggingFace cache (LLM, RoBERTa); pre-download for offline nodes |
 
 ---
 

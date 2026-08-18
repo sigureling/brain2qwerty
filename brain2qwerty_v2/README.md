@@ -33,7 +33,13 @@ pip install -e . --no-deps         # the brain2qwerty package
 
 ## Data
 
-The EnglishBCBL dataset will be released upon completion of the review process.
+The default V2 configuration in this repository uses the public SpanishBCBL
+dataset (`Pinet2024Meg`) through a minimal sentence-level adapter. Download the
+dataset from [Hugging Face](https://huggingface.co/datasets/bcbl190626/SpanishBCBL)
+and point `BRAIN2QWERTY_STUDIES` to its root directory.
+
+See [SPANISHBCBL_ADAPTER.md](SPANISHBCBL_ADAPTER.md) for the dataset-specific
+event handling, unchanged V2 numerical/training settings, and validation notes.
 
 ## Quickstart
 

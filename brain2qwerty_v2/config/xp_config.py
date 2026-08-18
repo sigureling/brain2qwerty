@@ -10,26 +10,27 @@ from pathlib import Path
 from .model_config import ENCODER
 
 STUDY_PATH = os.environ.get(
-    "BRAIN2QWERTY_STUDIES_EN", str(Path.home() / "brain2qwerty_data" / "pinet2025")
+    "BRAIN2QWERTY_STUDIES", str(Path.home() / "brain2qwerty_data" / "studies")
 )
 CACHE = os.environ.get("BRAIN2QWERTY_CACHE", str(Path.home() / ".cache" / "brain2qwerty"))
 RESULTS = os.environ.get("BRAIN2QWERTY_RESULTS", str(Path(CACHE) / "results"))
 
+
 def experiment_config() -> dict:
-    """Full Brain2Qwerty V2 configuration (EnglishBCBL, MEG; CTC-only)."""
+    """Full V2 CTC configuration using the SpanishBCBL MEG dataset."""
     return {
         "output_dir": RESULTS,
         "seed": 123,
         "max_epochs": 275,
         "data": {
             "study": {
-                "name": "PinetAudio2025",
+                "name": "Pinet2024Meg",
                 "path": STUDY_PATH,
                 "infra": {"folder": CACHE},
                 "infra_timelines": {"folder": CACHE, "cluster": None},
             },
             "transforms": [
-                {"name": "EnglishBCBLPreprocessing"},
+                {"name": "SpanishBCBLV2Preprocessing"},
                 {
                     "name": "Brain2QwertyV2Splitter",
                     "deterministic_splitter": {

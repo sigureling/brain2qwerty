@@ -13,6 +13,8 @@ from torch.utils.data import Sampler
 from neuralset.extractors.base import BaseStatic
 from neuralset.extractors.neuro import ChannelPositions as _ChannelPositions
 
+from studies.spanishbcbl_participants import select_participants
+
 BUTTON_MAPPING = {
     "s": 0,
     "o": 1,
@@ -160,35 +162,6 @@ class SentenceGroupedDistributedSampler(Sampler):
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
-
-
-# SpanishBCBL participant bookkeeping (single source of truth for the training
-# preprocessing): recover the 19 unique MEG participants by dropping the
-# no-keyboard controls and one excluded subject (metallic implant), then merging
-# recording ids that belong to the same person.
-CONTROL_SUBJECTS = {
-    "Pinet2024Meg/S11122024",
-    "Pinet2024Meg/S12122024",
-    "Pinet2024Meg/S26112024",
-    "Pinet2024Meg/S27112024",
-    "Pinet2024Meg/S28112024",
-}
-EXCLUDED_SUBJECTS = {"Pinet2024Meg/S23"}
-SUBJECT_MERGE = {
-    "Pinet2024Meg/S18": "Pinet2024Meg/S1",
-    "Pinet2024Meg/S14": "Pinet2024Meg/S4",
-    "Pinet2024Meg/S10": "Pinet2024Meg/S5",
-    "Pinet2024Meg/S21": "Pinet2024Meg/S5",
-}
-
-
-def select_participants(events):
-    """Keep the 19 unique SpanishBCBL participants: drop control/excluded subjects
-    and merge duplicate recordings (the ``subject`` column stays a string)."""
-    keep = ~events["subject"].isin(CONTROL_SUBJECTS | EXCLUDED_SUBJECTS)
-    events = events[keep].copy()
-    events["subject"] = events["subject"].replace(SUBJECT_MERGE)
-    return events
 
 
 # --- Training helpers ------------------------------------------------------

@@ -23,7 +23,7 @@ from neuraltrain.models.base import BaseModelConfig
 from neuraltrain.utils import WandbLoggerConfig
 
 from . import models as _models  # noqa: F401  (registers the ConvConformer encoder)
-from . import transforms as _transforms  # noqa: F401  (registers EventsTransforms)
+from . import transforms as _transforms  # noqa: F401  (registers SpanishBCBL adapter)
 from .callbacks import PredictionCSVCallback
 from .data import SentenceDataset
 from .pl_module import NeuroCTCModule
@@ -253,7 +253,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     import argparse
 
-    import studies  # noqa: F401  (registers the EnglishBCBL study)
+    import studies  # noqa: F401  (registers the SpanishBCBL study)
 
     from .cli import add_wandb_args, wandb_config
     from .config.xp_config import debug_config, experiment_config
