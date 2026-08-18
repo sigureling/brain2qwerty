@@ -12,8 +12,7 @@
 
 set -euo pipefail
 
-# 脚本所在目录
-cd "$(dirname "$0")"
+cd /mnt/shared-storage-user/xiaoqinfan/brain2qwerty
 
 # 默认路径
 export BRAIN2QWERTY_STUDIES="${BRAIN2QWERTY_STUDIES:-/mnt/shared-storage-user/xiaoqinfan/SpanishBCBL}"
