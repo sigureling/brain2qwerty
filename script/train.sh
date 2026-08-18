@@ -16,5 +16,10 @@ RESUME=
 
 export BRAIN2QWERTY_RESULTS=${BRAIN2QWERTY_CACHE}/results/seed_${SEED}
 
-mkdir -p "$BRAIN2QWERTY_RESULTS"
+# 防止误覆盖已有训练结果：results 目录已存在时直接退出（不进入 main.py）
+if [ -d "${BRAIN2QWERTY_RESULTS}" ]; then
+    echo "[brain2qwerty_v2] results directory '${BRAIN2QWERTY_RESULTS}' already exists; exiting."
+    exit 1
+fi
+
 python -m brain2qwerty_v2.main train --resume=$RESUME --seed=$SEED

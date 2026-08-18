@@ -285,12 +285,6 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     cfg = debug_config() if args.command == "debug" else experiment_config()
-    # 防止误覆盖已有训练结果：train/debug 开始时若 results 目录已存在则直接退出
-    if args.command in ("train", "debug"):
-        out_dir = Path(cfg["output_dir"])
-        if out_dir.exists():
-            print(f"[brain2qwerty_v2] results directory '{out_dir}' already exists; exiting.")
-            return
     if args.command == "eval":
         cfg["eval_only"] = True
         cfg["ckpt_path"] = args.ckpt

@@ -3,6 +3,7 @@
 # 循环提交 seed_list 里每个种子的实验
 
 seed_list='42 3407 1024'
+namespace=brainllm
 
 for seed in $seed_list
 do
@@ -12,10 +13,14 @@ do
         --gpu=4 \
         --memory=480000 \
         --cpu=64 \
-        --charged-group=brainllm_gpu \
+        --charged-group=${namespace}_gpu \
+        --namespace=ailab-${namespace} \
         --private-machine=group \
+        --store-host-nvme \
+        --custom-resources rdma/mlnx_shared=8 \
         --custom-resources brainpp.cn/fuse=1 \
-        -e GROUP=brainllm_gpu \
+        --custom-resources mellanox.com/mlnx_rdma=1 \
+        -e GROUP=${namespace}_gpu \
         -e DISTRIBUTED_JOB=true \
         -e SEED=$seed \
         --termination-grace-period-seconds 600 \
