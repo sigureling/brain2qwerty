@@ -62,7 +62,7 @@ def experiment_config() -> dict:
                 "aggregation": "trigger",
                 "infra": {"folder": CACHE},
             },
-            "batch_size": 8,
+            "batch_size": 2,
             "val_batch_size": 8,
             "test_batch_size": 8,
             "num_workers": 16,
@@ -89,6 +89,8 @@ def experiment_config() -> dict:
             "warmup_steps": 500,
             "eta_min": 1e-6,
         },
+        # Keep the effective update batch unchanged on the four-GPU launcher:
+        # 2 samples/GPU x 4 GPUs x 32 accumulation steps = 256 samples/update.
         "accumulate_gradient_batches": 32,
         "precision": "bf16-mixed",
     }

@@ -125,7 +125,7 @@ class Experiment(pydantic.BaseModel):
     stage1_epochs: int = 20
     precision: str = "16-mixed"
     gradient_clip_val: float | None = 1.0
-    accumulate_gradient_batches: int = 4
+    accumulate_gradient_batches: int = 32
     devices: int = 4
     output_dir: str = "."
 
@@ -203,8 +203,8 @@ class Experiment(pydantic.BaseModel):
             devices = 1
         elif self.devices > 1:
             # Full training targets exactly 4 GPUs: refuse to silently run on
-            # fewer so the effective batch (batch_size x 4 x accumulate=32) stays
-            # equivalent to the paper's 8-GPU x accumulate=2 setup.
+            # fewer so the effective update batch remains bounded on the
+            # four-GPU launcher (default: batch_size x 4 x accumulate=32).
             assert devices == 4, f"training requires exactly 4 GPUs, got {devices}"
         callbacks: list[pl.Callback] = []
         if eval_only or output_dir == self.output_dir:
