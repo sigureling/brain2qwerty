@@ -13,7 +13,7 @@ import pydantic
 import torch
 import torch.nn as nn
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.strategies import DDPStrategy
 from torch.utils.data import DataLoader
 
@@ -202,7 +202,7 @@ class Experiment(pydantic.BaseModel):
                     mode="min",
                 )
             )
-        loggers: list = [CSVLogger(self.output_dir, name="logs")]
+        loggers: list = [TensorBoardLogger(self.output_dir, name="logs")]
         if self.wandb_config is not None:
             loggers.append(self._build_wandb_logger())
         return pl.Trainer(

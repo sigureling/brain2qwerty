@@ -18,6 +18,9 @@ python -m brain2qwerty_v2.main cache --debug
 python -m brain2qwerty_v2.main debug
 python -m brain2qwerty_v2.main train
 python -m brain2qwerty_v2.main eval --ckpt /path/to/checkpoint.ckpt
+
+# 查看训练/评估曲线（日志位于结果目录下的 logs/version_N/）
+tensorboard --logdir "$BRAIN2QWERTY_RESULTS/logs"
 ```
 
 默认配置位于 `config/xp_config.py`，使用 `Pinet2024Meg`、

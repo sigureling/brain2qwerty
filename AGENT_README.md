@@ -115,8 +115,8 @@ builds the config from `config/xp_config` and runs the pydantic `Experiment`:
 - `python -m <pkg>.main cache` → builds the dataloaders once to pre-warm the feature
   cache (`--debug` for the 1-timeline subset).
 - `--wandb` → attaches a `WandbLoggerConfig`; the host is read from the `WANDB_HOST`
-  env var (never hardcoded). Without `--wandb`, a `CSVLogger` still records metrics so
-  runs are legible.
+  env var (never hardcoded). V2 uses a `TensorBoardLogger` without `--wandb`, recording
+  metrics under the run's `logs/version_N/` directory; V1 retains its `CSVLogger`.
 
 `Experiment.run()` → `data.build()` (dataloaders) → build model(s) → **materialise
 lazy params with a dummy forward** → `Trainer.fit` → `Trainer.test`. Multi-GPU uses
