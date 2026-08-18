@@ -56,15 +56,16 @@ class SentenceDataset(SegmentDataset):
         batch_data = [b.data for b in batches]
         out: dict[str, tp.Any] = {}
 
-        phonemes = [d["phonemes"].squeeze() for d in batch_data]
-        if phonemes[0].ndim == 0:
-            phonemes = [p.unsqueeze(0) for p in phonemes]
+        # Extractors add a leading batch dimension in __getitem__.  Remove
+        # only that dimension: squeeze() would turn a one-character target
+        # into a scalar and make pad_sequence fail on mixed-length batches.
+        phonemes = [d["phonemes"].squeeze(0) for d in batch_data]
         out["phoneme_sizes"] = torch.tensor(
             [p.shape[0] for p in phonemes], dtype=torch.long
         )
         out["phonemes"] = pad_sequence(phonemes, batch_first=True, padding_value=0)
 
-        neuros = [d["neuros"].squeeze().T for d in batch_data]  # -> (T, C)
+        neuros = [d["neuros"].squeeze(0).T for d in batch_data]  # -> (T, C)
         out["neuro_sizes"] = torch.tensor([n.shape[0] for n in neuros], dtype=torch.long)
         out["neuros"] = pad_sequence(neuros, batch_first=True, padding_value=0)
 
