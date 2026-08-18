@@ -81,7 +81,7 @@ def experiment_config() -> dict:
             "warmup_steps": 500,
             "eta_min": 1e-6,
         },
-        "accumulate_gradient_batches": 2,
+        "accumulate_gradient_batches": 4,
         "precision": "bf16-mixed",
     }
 

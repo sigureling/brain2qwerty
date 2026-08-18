@@ -124,8 +124,8 @@ class Experiment(pydantic.BaseModel):
     max_epochs: int = 275
     precision: str = "16-mixed"
     gradient_clip_val: float | None = 1.0
-    accumulate_gradient_batches: int = 2
-    devices: int = 8
+    accumulate_gradient_batches: int = 4
+    devices: int = 4
     output_dir: str = "."
 
     # auxiliary/final CTC loss weighting
@@ -190,6 +190,11 @@ class Experiment(pydantic.BaseModel):
             # Evaluate in a single process so the prediction callback captures the
             # whole test split without DDP sharding to reconcile.
             devices = 1
+        elif self.devices > 1:
+            # Full training targets exactly 4 GPUs: refuse to silently run on
+            # fewer so the effective batch (batch_size x 4 x accumulate=4) stays
+            # equivalent to the paper's 8-GPU x accumulate=2 setup.
+            assert devices == 4, f"training requires exactly 4 GPUs, got {devices}"
         callbacks: list[pl.Callback] = [PredictionJSONCallback(save_dir=self.output_dir)]
         if self.save_checkpoints:
             callbacks.append(
@@ -261,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="brain2qwerty_v2")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("debug", help="1-timeline smoke test (default debug config)")
-    p_train = sub.add_parser("train", help="full training (1 node, 8 GPUs)")
+    p_train = sub.add_parser("train", help="full training (1 node, 4 GPUs)")
     p_train.add_argument("--resume", default=None, help="checkpoint to resume from")
     p_train.add_argument("--seed", type=int, default=None, help="override the seed")
     p_eval = sub.add_parser("eval", help="evaluate a checkpoint on the test split")
