@@ -4,16 +4,16 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import csv
+import json
 from pathlib import Path
 
 import lightning.pytorch as pl
 
-from .utils import compute_ctc_sample_metrics, prediction_fieldnames
+from .utils import compute_ctc_sample_metrics
 
 
-class PredictionCSVCallback(pl.Callback):
-    """Save per-sentence CTC predictions to ``predictions_test.csv``.
+class PredictionJSONCallback(pl.Callback):
+    """Save per-sentence CTC predictions to ``predictions_test.json``.
 
     Only written at test time (not every validation epoch). The rows accumulated by
     the Lightning module are gathered across ranks first, which is a no-op for the
@@ -42,23 +42,25 @@ class PredictionCSVCallback(pl.Callback):
             return
         has_segment_meta = any(r.get("subject") for r in rows)
         rows_with_metrics = compute_ctc_sample_metrics(
-            [r["true_text"] for r in rows],
+            [r["typed_text"] for r in rows],
             [r["ctc_text"] for r in rows],
         )
-        for row_m, row_raw in zip(rows_with_metrics, rows):
-            if has_segment_meta:
-                row_m["subject"] = row_raw.get("subject", "")
-                row_m["sentence_UID"] = row_raw.get("sentence_UID", "")
+        if has_segment_meta:
+            rows_with_metrics = [
+                {
+                    "sentence_UID": row_raw.get("sentence_UID", ""),
+                    "subject": row_raw.get("subject", ""),
+                    **row_m,
+                }
+                for row_m, row_raw in zip(rows_with_metrics, rows)
+            ]
         self.save_dir.mkdir(parents=True, exist_ok=True)
         path = self.save_dir / filename
-        with open(path, "w", newline="") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=prediction_fieldnames(has_segment_meta)
-            )
-            writer.writeheader()
-            writer.writerows(rows_with_metrics)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows_with_metrics, f, ensure_ascii=False, indent=2)
+            f.write("\n")
         print(f"Saved {len(rows_with_metrics)} predictions to {path}")
 
     def on_test_epoch_end(self, trainer, pl_module):
         rows = getattr(pl_module, "_test_predictions", [])
-        self._save(trainer, rows, "predictions_test.csv")
+        self._save(trainer, rows, "predictions_test.json")

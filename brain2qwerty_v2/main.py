@@ -24,7 +24,7 @@ from neuraltrain.utils import WandbLoggerConfig
 
 from . import models as _models  # noqa: F401  (registers the ConvConformer encoder)
 from . import transforms as _transforms  # noqa: F401  (registers SpanishBCBL adapter)
-from .callbacks import PredictionCSVCallback
+from .callbacks import PredictionJSONCallback
 from .data import SentenceDataset
 from .pl_module import NeuroCTCModule
 from .utils import ChannelPositions2D, accelerator, build_events
@@ -190,7 +190,7 @@ class Experiment(pydantic.BaseModel):
             # Evaluate in a single process so the prediction callback captures the
             # whole test split without DDP sharding to reconcile.
             devices = 1
-        callbacks: list[pl.Callback] = [PredictionCSVCallback(save_dir=self.output_dir)]
+        callbacks: list[pl.Callback] = [PredictionJSONCallback(save_dir=self.output_dir)]
         if self.save_checkpoints:
             callbacks.append(
                 ModelCheckpoint(

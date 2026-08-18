@@ -14,7 +14,7 @@ from torch import optim
 from .augmentations import Preprocess, PreprocessConfig
 from .losses import CtcLoss
 from .metrics import CharacterErrorRate
-from .utils import compute_output_lens, ctc_greedy_decode
+from .utils import compute_output_lens, ctc_greedy_decode, label_to_text
 
 log = logging.getLogger(__name__)
 
@@ -88,13 +88,13 @@ class NeuroCTCModule(pl.LightningModule):
             metric.update(ctc_logits, data["phonemes"], out_lens, data["phoneme_sizes"])
 
         if step_name == "test":
-            sentences = [seg.trigger.text for seg in batch.segments]
             ctc_texts = ctc_greedy_decode(ctc_logits.detach(), out_lens)
             for i, seg in enumerate(batch.segments):
                 extra = getattr(seg.trigger, "extra", {}) or {}
+                typed_ids = data["phonemes"][i, : data["phoneme_sizes"][i]]
                 self._test_predictions.append(
                     {
-                        "true_text": sentences[i],
+                        "typed_text": label_to_text(typed_ids.detach().cpu().tolist()),
                         "ctc_text": ctc_texts[i],
                         "subject": extra.get("subject", ""),
                         "sentence_UID": extra.get("sentence_UID", ""),

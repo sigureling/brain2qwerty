@@ -65,8 +65,8 @@ python -m brain2qwerty_v2.main eval --ckpt /path/to/checkpoint.ckpt
 ## 标签与评估含义
 
 训练目标 `typed_label` 是参与者的实际有效按键序列，不是标准句子。测试输出中的
-`true_text` 仍来自源 Sentence 的参考文本，因此 `CTC_CER` 同时包含脑信号解码错误
-和参与者本身的输入错误。这一行为与当前 V2 评估代码一致，比较实验时需要明确注明。
+`typed_text` 由 `typed_label` 还原得到，`CTC_CER` 以该 typed label 为目标；源 Sentence
+的参考文本不写入 `predictions_test.json`。
 
 ## 验证
 

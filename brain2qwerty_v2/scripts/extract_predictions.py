@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import json
 import os
 
 import Levenshtein
@@ -21,10 +22,10 @@ def compute_cer(true: str, pred: str) -> float:
 
 
 def summarize(df: pd.DataFrame) -> pd.DataFrame:
-    """Recompute CTC CER from the saved reference and decoded text."""
+    """Recompute CTC CER from the saved typed target and decoded text."""
     df = df.copy()
     df[HEADLINE_METRIC] = df.apply(
-        lambda r: compute_cer(r["true_text"], r["ctc_text"]), axis=1
+        lambda r: compute_cer(r["typed_text"], r["ctc_text"]), axis=1
     )
     return df
 
@@ -61,23 +62,24 @@ def print_summary(df: pd.DataFrame) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Summarize the CTC prediction CSV written by ``PredictionCSVCallback``."""
-    parser = argparse.ArgumentParser(description="Summarize CTC predictions CSV")
-    parser.add_argument("--input", required=True, help="predictions CSV or its directory")
+    """Summarize the CTC prediction JSON written by ``PredictionJSONCallback``."""
+    parser = argparse.ArgumentParser(description="Summarize CTC predictions JSON")
+    parser.add_argument("--input", required=True, help="predictions JSON or its directory")
     parser.add_argument("--split", default="val", choices=["val", "test"])
     parser.add_argument("--output", default=None, help="optional per-subject summary CSV")
     args = parser.parse_args(argv)
 
-    csv_path = (
-        os.path.join(args.input, f"predictions_{args.split}.csv")
+    json_path = (
+        os.path.join(args.input, f"predictions_{args.split}.json")
         if os.path.isdir(args.input)
         else args.input
     )
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(csv_path)
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(json_path)
 
-    print(f"Reading {args.split} predictions from {csv_path}")
-    df = summarize(pd.read_csv(csv_path))
+    print(f"Reading {args.split} predictions from {json_path}")
+    with open(json_path, encoding="utf-8") as f:
+        df = summarize(pd.DataFrame(json.load(f)))
     n_subj = df["subject"].nunique() if "subject" in df.columns else 1
     print(
         f"Scoring {len(df)} sentences across {n_subj} subjects "

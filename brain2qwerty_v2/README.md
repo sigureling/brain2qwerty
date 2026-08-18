@@ -77,17 +77,17 @@ python -m brain2qwerty_v2.main cache
 python -m brain2qwerty_v2.main train
 ```
 
-**3. Evaluate the checkpoint** on the test split — writes `predictions_test.csv` (true text, CTC text and CTC CER per sentence):
+**3. Evaluate the checkpoint** on the test split — writes a formatted `predictions_test.json` (`typed_text`, CTC text and CER against the typed label per sentence; the reference text is not saved):
 
 ```bash
 python -m brain2qwerty_v2.main eval --ckpt $BRAIN2QWERTY_RESULTS/best_ctc.ckpt
 ```
 
-**4. Compute the per-subject metrics** from that CSV (sentence-wise and averaged per subject, with the standard error across subjects):
+**4. Compute the per-subject metrics** from that JSON (sentence-wise and averaged per subject, with the standard error across subjects):
 
 ```bash
 python -m brain2qwerty_v2.scripts.extract_predictions \
-    --input $BRAIN2QWERTY_RESULTS/predictions_test.csv --split test
+    --input $BRAIN2QWERTY_RESULTS/predictions_test.json --split test
 ```
 
 ## Citing

@@ -66,28 +66,19 @@ def apply_jitter(
     return data[:, int(jitter_amount) :]
 
 
-def prediction_fieldnames(has_segment_meta: bool = False) -> list[str]:
-    """Return the columns used by the CTC prediction CSV."""
-    cols: list[str] = []
-    if has_segment_meta:
-        cols += ["sentence_UID", "subject"]
-    cols += ["true_text", "ctc_text", "CTC_CER"]
-    return cols
-
-
 def compute_ctc_sample_metrics(
-    true_texts: list[str], ctc_texts: list[str]
+    typed_texts: list[str], ctc_texts: list[str]
 ) -> list[dict]:
-    """Compute per-sentence CTC CER for the predictions CSV."""
+    """Compute per-sentence CTC CER against the participant's typed target."""
     from torchmetrics.text import CharErrorRate
 
     cer_fn = CharErrorRate()
     rows: list[dict] = []
-    for tgt, ctc_text in zip(true_texts, ctc_texts):
+    for typed_text, ctc_text in zip(typed_texts, ctc_texts):
         row: dict[str, tp.Any] = {
-            "true_text": tgt,
+            "typed_text": typed_text,
             "ctc_text": ctc_text,
-            "CTC_CER": cer_fn([ctc_text], [tgt]).item(),
+            "CTC_CER": cer_fn([ctc_text], [typed_text]).item(),
         }
         rows.append(row)
     return rows
