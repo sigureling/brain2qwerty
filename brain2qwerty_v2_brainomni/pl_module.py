@@ -42,7 +42,6 @@ class NeuroCTCModule(pl.LightningModule):
         optimizer_config: dict | None = None,
         scheduler_config: dict | None = None,
         preprocess_config: dict | None = None,
-        encoder_lr: float | None = None,
     ):
         super().__init__()
         self.network = network
@@ -56,7 +55,6 @@ class NeuroCTCModule(pl.LightningModule):
         self.loss_alpha = loss_alpha
         self.val_ctc_cer = CharacterErrorRate()
         self.test_ctc_cer = CharacterErrorRate()
-        self.encoder_lr = encoder_lr
 
         self._test_predictions: list[dict] = []
 
@@ -177,14 +175,13 @@ class NeuroCTCModule(pl.LightningModule):
             if id(p) not in network_ids and p.requires_grad
         ]
         base_lr = self.optimizer_config.get("lr", 4e-4)
-        enc_lr = self.encoder_lr or base_lr
         wd = self.optimizer_config.get("weight_decay", 1e-3)
 
         groups = []
         if head_trainable or other_trainable:
-            groups.append({"params": head_trainable + other_trainable, "lr": base_lr})
+            groups.append({"params": head_trainable + other_trainable})
         if backbone_trainable:
-            groups.append({"params": backbone_trainable, "lr": enc_lr})
+            groups.append({"params": backbone_trainable})
         optimizer = optim.AdamW(
             groups or [{"params": list(self.parameters())}],
             lr=base_lr,

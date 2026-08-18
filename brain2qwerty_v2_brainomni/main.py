@@ -131,7 +131,6 @@ class Experiment(pydantic.BaseModel):
 
     # auxiliary/final CTC loss weighting
     loss_alpha: float = 0.7
-    encoder_lr: float | None = None
 
     optimizer_config: dict = pydantic.Field(
         default_factory=lambda: {"lr": 8e-4, "weight_decay": 1e-3}
@@ -168,7 +167,6 @@ class Experiment(pydantic.BaseModel):
         module = NeuroCTCModule(
             network=network,
             loss_alpha=self.loss_alpha,
-            encoder_lr=self.encoder_lr,
             optimizer_config=self.optimizer_config,
             scheduler_config=scheduler_config or self.scheduler_config,
             preprocess_config=self.preprocess_config,
@@ -339,6 +337,22 @@ def main(argv: list[str] | None = None) -> None:
     p_cache.add_argument("--debug", action="store_true", help="only the debug subset")
     for p in (sub.choices["debug"], p_train, p_eval):
         add_wandb_args(p)
+        p.add_argument(
+            "--aux-prediction",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="enable/disable the auxiliary CTC path",
+        )
+        p.add_argument(
+            "--classifier-head",
+            choices=("rms_linear", "rms_conv"),
+            default=None,
+            help="CTC classifier head",
+        )
+        p.add_argument("--lr", type=float, default=None, help="AdamW learning rate")
+        p.add_argument(
+            "--weight-decay", type=float, default=None, help="AdamW weight decay"
+        )
     args = parser.parse_args(argv)
 
     if args.command == "cache":
@@ -349,6 +363,14 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     cfg = debug_config() if args.command == "debug" else experiment_config()
+    if args.aux_prediction is not None:
+        cfg["brain_model_config"]["aux_prediction"] = args.aux_prediction
+    if args.classifier_head is not None:
+        cfg["brain_model_config"]["classifier_head"] = args.classifier_head
+    if args.lr is not None:
+        cfg["optimizer_config"]["lr"] = args.lr
+    if args.weight_decay is not None:
+        cfg["optimizer_config"]["weight_decay"] = args.weight_decay
     if args.command == "eval":
         cfg["eval_only"] = True
         cfg["ckpt_path"] = args.ckpt
